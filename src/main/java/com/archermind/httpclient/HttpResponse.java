@@ -57,7 +57,7 @@ public class HttpResponse extends HttpMsg {
 				&& HttpResponseHelper.getTmpDirPath().trim().length() > 0)
 			haveTmpPath = true;
 	}
-	private static int MAX_CONTENT_LENGTH_IN_MEMORY = 1024 * 10;
+	private static int MAX_CONTENT_LENGTH_IN_MEMORY = 1024 * 1024 * 10;
 
 	static {
 		if (HttpResponseHelper.getMaxContentLengthInMemory() != null
@@ -338,7 +338,7 @@ public class HttpResponse extends HttpMsg {
 						tmpfilewrite.write(bufa, begi, chunkSize);
 					}
 				}
-				tmpfilewrite.write(buffer.array(), iread, buffer.position());
+				tmpfilewrite.write(buffer.array(), iread, buffer.position()-iread);
 				swapSize = buffer.position() - iread;
 			}
 			if (isSavedAsTempFile) {
