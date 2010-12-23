@@ -24,6 +24,7 @@ public class Utils {
 	public static final String SERVER_HEADER = "Server";
 	public static final String HTTP_1_1 = "HTTP/1.1";
 	public static final String HTTP_1_0 = "HTTP/1.0";
+	public static final String ACCEPT_NAME = "Accept";
 
 	public static int parseChunkSize(ByteBuffer buffer, int start, int end)
 			throws IOException {

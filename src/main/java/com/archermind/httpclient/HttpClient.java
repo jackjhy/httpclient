@@ -13,6 +13,8 @@
 package com.archermind.httpclient;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -37,6 +39,13 @@ public class HttpClient {
 		this.endpointsPool = eps;
 	}
 
+	/**
+	 * lightweight blocking method
+	 * @param req
+	 * @return response
+	 * @throws Pausable
+	 * @throws Exception, when got a error in processing
+	 */
 	public HttpResponse doRequest(HttpRequest req) throws Pausable, Exception {
 
 		Mailbox<HttpMsg> mbx = new Mailbox<HttpMsg>(1);
@@ -54,44 +63,55 @@ public class HttpClient {
 		return (HttpResponse)msg;
 	}
 
-	
-//	public HttpResponse doRequest(HttpRequest req) throws Pausable, Exception {
-//
-//		Mailbox<HttpMsg> mbx = new Mailbox<HttpMsg>(1);
-//		EndPoint ep = getEndPoint(req.getHost());
-//		new RequestTask(mbx, ep,req).start();
-//		HttpResponse resp = (HttpResponse) mbx.get();
-//		if (req.keepAlive())
-//			keepEndPoint(ep, req.getHost());
-//		else
-//			releaseEndPoint(ep);
-//		return resp;
-//	}
-	
-//	class RequestTask extends Task{
-//		
-//		@Override
-//		public void execute() throws Pausable, Exception {
-//			// TODO Auto-generated method stub
-//			super.execute();
-//		}
-//		
-//	}
 
-	public HttpResponse doRequestnb(HttpRequest req) throws Pausable, IOException {
+	/**
+	 * lightweight blocking with a timeout
+	 * @param req
+	 * @param timeoutMills
+	 * @return null, when timout and response at once
+	 * @throws Pausable
+	 * @throws Exception,when occur error
+	 */
+	public HttpResponse doRequest(HttpRequest req,long timeoutMills) throws Pausable, Exception {
 
 		Mailbox<HttpMsg> mbx = new Mailbox<HttpMsg>(1);
 		EndPoint ep = getEndPoint(req.getHost());
-		System.out.println("get ep");
 		new RequestTask(mbx, ep,req).start();
-		HttpResponse resp = (HttpResponse) mbx.getnb();
-		if(resp==null) return null;
+		HttpMsg msg = mbx.get(timeoutMills);
+		if(msg==null) return null;
 		
+		if(msg instanceof ErrorMsg){
+			throw ((ErrorMsg)msg).getException();
+		}
 		if (req.keepAlive())
 			keepEndPoint(ep, req.getHost());
 		else
 			releaseEndPoint(ep);
-		return resp;
+		return (HttpResponse)msg;
+	}
+	
+	/**
+	 * unblocking method, if did not finished, get null at once
+	 * @param req
+	 * @return
+	 * @throws Exception,when occur error
+	 */
+	public HttpResponse doRequestnb(HttpRequest req) throws Pausable,Exception {
+
+		Mailbox<HttpMsg> mbx = new Mailbox<HttpMsg>(1);
+		EndPoint ep = getEndPoint(req.getHost());
+		new RequestTask(mbx, ep,req).start();
+		HttpMsg msg = mbx.getnb();
+		if(msg==null) return null;
+		
+		if(msg instanceof ErrorMsg){
+			throw ((ErrorMsg)msg).getException();
+		}
+		if (req.keepAlive())
+			keepEndPoint(ep, req.getHost());
+		else
+			releaseEndPoint(ep);
+		return (HttpResponse)msg;
 	}
 	
 	private synchronized void keepEndPoint(EndPoint ep, String host) {
@@ -112,8 +132,9 @@ public class HttpClient {
 		if (eps != null) {
 			while (eps.size() > 0) {
 				result = eps.remove(eps.size() - 1);
-				if (checkEndPoint(result))
+				if (checkEndPoint(result)){
 					return result;
+				}
 				else
 					continue;
 			}
@@ -125,6 +146,15 @@ public class HttpClient {
 	}
 
 	private boolean checkEndPoint(EndPoint ep) {
+		try {
+			if(((SocketChannel)(ep.sockch)).read(ByteBuffer.allocate(1))== -1){
+				ep.close();
+				return false;
+			}
+		} catch (IOException e) {
+			ep.close();
+			return false;
+		}
 		return true;
 	}
 

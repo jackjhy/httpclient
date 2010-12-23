@@ -13,8 +13,13 @@
 package com.archermind.httpclient;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,10 +41,38 @@ public class HttpResponse extends HttpMsg {
 	private String[] keys;
 	private int[] valueRanges;
 	ByteBuffer buffer;
+	ByteBuffer buffertmp;
 	public int nFields;
+
+	private int tmpIRead;
+	private int swapSize;
 
 	public int contentOffset;
 	public int contentLength;
+
+	public boolean isSavedAsTempFile = false;
+	private static boolean haveTmpPath = false;
+	static {
+		if (HttpResponseHelper.getTmpDirPath() != null
+				&& HttpResponseHelper.getTmpDirPath().trim().length() > 0)
+			haveTmpPath = true;
+	}
+	private static int MAX_CONTENT_LENGTH_IN_MEMORY = 1024 * 10;
+
+	static {
+		if (HttpResponseHelper.getMaxContentLengthInMemory() != null
+				&& HttpResponseHelper.getMaxContentLengthInMemory().trim()
+						.length() > 0)
+			try {
+				MAX_CONTENT_LENGTH_IN_MEMORY = Integer
+						.parseInt(HttpResponseHelper
+								.getMaxContentLengthInMemory().trim());
+			} catch (NumberFormatException e) {
+			}
+	}
+
+	public File tempFile;
+	private OutputStream tmpfilewrite;
 
 	/**
 	 * The read cursor, used in the read* methods.
@@ -81,8 +114,24 @@ public class HttpResponse extends HttpMsg {
 	public void readBody(EndPoint ep) throws IOException, Pausable {
 		iread = contentOffset;
 		if (contentLength > 0) {
-			fill(ep, contentOffset, contentLength);
-			iread = contentOffset + contentLength;
+			if (contentLength > MAX_CONTENT_LENGTH_IN_MEMORY && haveTmpPath) {
+				isSavedAsTempFile = true;
+				buffertmp = ByteBuffer.allocate(MAX_CONTENT_LENGTH_IN_MEMORY);
+				tempFile = new File(HttpResponseHelper.getTmpDirPath()
+						+ File.separator + "htmp_" + Math.random());
+				tmpfilewrite = new FileOutputStream(tempFile);
+				tmpfilewrite.write(buffer.array(), contentOffset,
+						buffer.position() - contentOffset);
+			}
+			if (!isSavedAsTempFile) {
+				fill(ep, contentOffset, contentLength);
+				iread = contentOffset + contentLength;
+			} else {
+				fill(ep, 0, contentLength +contentOffset- buffer.position());
+				tmpfilewrite.flush();
+				tmpfilewrite.close();
+				buffertmp.clear();
+			}
 		} else if (contentLength == -1) {
 			// CHUNKED
 			readAllChunks(ep);
@@ -90,86 +139,159 @@ public class HttpResponse extends HttpMsg {
 		readTrailers(ep);
 
 	}
-	
-	public InputStream content(){
-		return new ByteArrayInputStream(buffer.array(), contentOffset, contentLength);
+
+	public InputStream content() throws FileNotFoundException {
+		if (isSavedAsTempFile)
+			return new FileInputStream(tempFile);
+		return new ByteArrayInputStream(buffer.array(), contentOffset,
+				contentLength);
 	}
-	
-	public String status(){
+
+	public File getTempFile() throws Exception {
+		if (isSavedAsTempFile)
+			return tempFile;
+		throw new Exception("no temp file");
+	}
+
+	public String status() {
 		return extractRange(statusRange);
 	}
 
-	public String version(){
+	public String version() {
 		return extractRange(versionRange);
 	}
-	
-	public String contentType(){
+
+	public String contentType() {
 		return getHeader(CONTENT_TYPE);
 	}
-	
-	public String contentEncoding(){
+
+	public String contentEncoding() {
 		return getHeader(CONTENT_ENCODING);
 	}
-	
-	private final Pattern charsetRegex = Pattern.compile("charset=([0-9A-Za-z-]+)");
-	
-	public String charset(){
+
+	private final Pattern charsetRegex = Pattern
+			.compile("charset=([0-9A-Za-z-]+)");
+
+	public String charset() {
 		String contentType = contentType();
 		String charset = "utf-8";
 		Matcher matcher = this.charsetRegex.matcher(contentType);
-        if (matcher.find()) {
-            charset = matcher.group(1);
-        }
-        return charset;
+		if (matcher.find()) {
+			charset = matcher.group(1);
+		}
+		return charset;
 	}
-	
-	public String getContentToString() throws Exception{
+
+	public String getContentToString() throws Exception {
 		String charset = charset();
-		if(!"".equals(contentEncoding()))throw new Exception("content had been encoding, you should decode it by yourself");
-		return new String(buffer.array(),contentOffset,contentLength,charset);
+		if (!"".equals(contentEncoding()))
+			throw new Exception(
+					"content had been encoding, you should decode it by yourself");
+		if (isSavedAsTempFile)
+			throw new Exception(
+					"content had been saved as temp file,plz use content() to get inputstream");
+		return new String(buffer.array(), contentOffset, contentLength, charset);
 	}
-	
-    private void readTrailers(EndPoint endpoint) {
-    	
-    }
+
+	private void readTrailers(EndPoint endpoint) {
+
+	}
 
 	private int readLine(EndPoint ep) throws IOException, Pausable {
-		int ireadSave = iread;
-		int i = ireadSave;
-		while (true) {
-			int end = buffer.position();
-			byte[] bufa = buffer.array();
-			for (; i < end; i++) {
-				if (bufa[i] == CR) {
-					++i;
-					if (i >= end) {
-						buffer = ep.fill(buffer, 1);
-						bufa = buffer.array(); // fill could have changed the
-												// buffer.
-						end = buffer.position();
+		if (isSavedAsTempFile) {
+			int ireadSave = tmpIRead;
+			int i = ireadSave;
+			while (true) {
+				int end = buffertmp.position();
+				byte[] bufa = buffertmp.array();
+				for (; i < end; i++) {
+					if (bufa[i] == CR) {
+						++i;
+						if (i >= end) {
+							buffertmp = ep.fill(buffertmp, 1);
+							bufa = buffertmp.array(); // fill could have changed
+														// the
+														// buffer.
+							end = buffertmp.position();
+						}
+						if (bufa[i] != LF) {
+							throw new IOException("Expected LF at " + i);
+						}
+						++i;
+						int lineLength = i - ireadSave;
+						tmpIRead = i;
+						swapSize = buffertmp.position() - tmpIRead;
+						return lineLength;
 					}
-					if (bufa[i] != LF) {
-						throw new IOException("Expected LF at " + i);
-					}
-					++i;
-					int lineLength = i - ireadSave;
-					iread = i;
-					return lineLength;
 				}
+				buffertmp = ep.fill(buffertmp, 1); // no CRLF found. fill a bit
+													// more
+													// and start over.
 			}
-			buffer = ep.fill(buffer, 1); // no CRLF found. fill a bit more
-											// and start over.
+		} else {
+			int ireadSave = iread;
+			int i = ireadSave;
+			while (true) {
+				int end = buffer.position();
+				byte[] bufa = buffer.array();
+				for (; i < end; i++) {
+					if (bufa[i] == CR) {
+						++i;
+						if (i >= end) {
+							buffer = ep.fill(buffer, 1);
+							bufa = buffer.array(); // fill could have changed
+													// the
+													// buffer.
+							end = buffer.position();
+						}
+						if (bufa[i] != LF) {
+							throw new IOException("Expected LF at " + i);
+						}
+						++i;
+						int lineLength = i - ireadSave;
+						iread = i;
+						return lineLength;
+					}
+				}
+				buffer = ep.fill(buffer, 1); // no CRLF found. fill a bit more
+												// and start over.
+			}
 		}
-
 	}
 
 	// topup if request's buffer doesn't have all the bytes yet.
 	public void fill(EndPoint endpoint, int offset, int size)
 			throws IOException, Pausable {
+		int currentPos = isSavedAsTempFile ? buffertmp.position() : buffer
+				.position();
 		int total = offset + size;
-		int currentPos = buffer.position();
-		if (total > buffer.position()) {
-			buffer = endpoint.fill(buffer, (total - currentPos));
+
+		if (isSavedAsTempFile) {
+			int remnant = total - currentPos;
+			if (remnant <= 0)
+				return;
+			while (remnant > MAX_CONTENT_LENGTH_IN_MEMORY) {
+				buffertmp.clear();
+				buffertmp = endpoint.fill(buffertmp,
+						MAX_CONTENT_LENGTH_IN_MEMORY);
+				remnant = remnant - buffertmp.position();
+				if (remnant <= 0) {
+					tmpfilewrite.write(buffertmp.array(), 0, remnant
+							+ buffertmp.position());
+					tmpIRead = remnant + buffertmp.position();
+					return;
+				} else
+					tmpfilewrite.write(buffertmp.array(), 0,
+							buffertmp.position());
+			}
+			buffertmp.clear();
+			buffertmp = endpoint.fill(buffertmp, remnant);
+			tmpfilewrite.write(buffertmp.array(), 0, remnant);
+			tmpIRead = remnant;
+		} else {
+			if (total > buffer.position()) {
+				buffer = endpoint.fill(buffer, (total - currentPos));
+			}
 		}
 	}
 
@@ -185,33 +307,76 @@ public class HttpResponse extends HttpMsg {
 																	// in hex,
 																	// ignore
 																	// extension
-			if (size == 0)
+			if (size == 0) {
 				break;
+			}
+			if (isSavedAsTempFile) {
+				if (swapSize >= size + 2) {
+					tmpfilewrite.write(buffertmp.array(), tmpIRead, size);
+					tmpIRead += size + 2;
+					continue;
+				} else {
+					tmpfilewrite.write(buffertmp.array(), tmpIRead, swapSize);
+				}
+			}
+
 			// If the chunk has not already been read in, do so
-			fill(ep, iread, size + 2 /* chunksize + CRLF */);
-			// record chunk start and end
-			chunkRanges.add(beg);
-			chunkRanges.add(beg + size); // without the CRLF
-			iread += size + 2; // for the next round.
+			if (!isSavedAsTempFile && haveTmpPath
+					&& size + 2 + iread > buffer.position()
+					&& iread + size + 2 > MAX_CONTENT_LENGTH_IN_MEMORY) {
+				isSavedAsTempFile = true;
+				tempFile = new File(HttpResponseHelper.getTmpDirPath()
+						+ File.separator + "htmp_" + Math.random());
+				tmpfilewrite = new FileOutputStream(tempFile);
+				buffertmp = ByteBuffer.allocate(MAX_CONTENT_LENGTH_IN_MEMORY);
+				// move readed bytes to tmp file
+				if (chunkRanges.numElements != 0) {
+					byte[] bufa = buffer.array();
+					for (int i = 0; i < chunkRanges.numElements; i += 2) {
+						int begi = chunkRanges.get(i);
+						int chunkSize = chunkRanges.get(i + 1) - begi;
+						tmpfilewrite.write(bufa, begi, chunkSize);
+					}
+				}
+				tmpfilewrite.write(buffer.array(), iread, buffer.position());
+				swapSize = buffer.position() - iread;
+			}
+			if (isSavedAsTempFile) {
+				buffertmp.clear();
+				fill(ep, 0, size + 2 - swapSize /* chunksize + CRLF */);
+			} else {
+				fill(ep, iread, size + 2 /* chunksize + CRLF */);
+				// record chunk start and end
+				chunkRanges.add(beg);
+				chunkRanges.add(beg + size); // without the CRLF
+				iread += size + 2; // for the next round.
+			}
 		} while (true);
 
 		// / consolidate all chunkRanges
-		if (chunkRanges.numElements == 0) {
-			contentLength = 0;
-			return;
-		}
-		contentOffset = chunkRanges.get(0); // first chunk's beginning
-		int endOfLastChunk = chunkRanges.get(1); // first chunk's end
+		if (!isSavedAsTempFile) {
+			if (chunkRanges.numElements == 0) {
+				contentLength = 0;
+				return;
+			}
+			contentOffset = chunkRanges.get(0); // first chunk's beginning
+			int endOfLastChunk = chunkRanges.get(1); // first chunk's end
 
-		byte[] bufa = buffer.array();
-		for (int i = 2; i < chunkRanges.numElements; i += 2) {
-			int beg = chunkRanges.get(i);
-			int chunkSize = chunkRanges.get(i + 1) - beg;
-			System.arraycopy(bufa, beg, bufa, endOfLastChunk, chunkSize);
-			endOfLastChunk += chunkSize;
+			byte[] bufa = buffer.array();
+			for (int i = 2; i < chunkRanges.numElements; i += 2) {
+				int beg = chunkRanges.get(i);
+				int chunkSize = chunkRanges.get(i + 1) - beg;
+				System.arraycopy(bufa, beg, bufa, endOfLastChunk, chunkSize);
+				endOfLastChunk += chunkSize;
+			}
+			// TODO move all trailer stuff up
+			contentLength = endOfLastChunk - contentOffset;
+		} else {
+			tmpfilewrite.flush();
+			tmpfilewrite.close();
+			buffertmp.clear();
+			contentLength = (int) tempFile.length();
 		}
-		// TODO move all trailer stuff up
-		contentLength = endOfLastChunk - contentOffset;
 
 		// At this point, the contentOffset and contentLen give the entire
 		// content

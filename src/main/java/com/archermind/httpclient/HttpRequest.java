@@ -95,14 +95,6 @@ public class HttpRequest extends HttpMsg {
 		dos.write(CR);
 		dos.write(LF);
 
-		if (body != null) {
-			dos.write(CONTENT_LEN.getBytes());
-			dos.write(": ".getBytes());
-			dos.write(body.length);
-			dos.write(CR);
-			dos.write(LF);
-		}
-
 		if (header != null) {
 			for (NVPair e : header) {
 				dos.write(e.getName().getBytes());
@@ -111,6 +103,14 @@ public class HttpRequest extends HttpMsg {
 				dos.write(CR);
 				dos.write(LF);
 			}
+		}
+
+		if (body != null) {
+			dos.write(CONTENT_LEN.getBytes());
+			dos.write(": ".getBytes());
+			dos.write(body.length);
+			dos.write(CR);
+			dos.write(LF);
 		}
 
 		dos.write(CR);

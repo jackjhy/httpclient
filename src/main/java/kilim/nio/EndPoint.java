@@ -115,7 +115,6 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
         int yieldCount = 0;
         do {
             int n = ch.read(buf);
-            // System.out.println(buf);
             if (n == -1) {
                 close();
                 throw new EOFException();
@@ -126,10 +125,10 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
                     // Avoid registering with the selector because it requires waking up the selector, context switching
                     // between threads and calling the OS just to register. Just yield, let other tasks have a go, then
                     // check later. Do this at most YIELD_COUNT times before going back to the selector.
-                    System.out.println("yeild");
+//                    System.out.println("yeild");
                 	Task.yield();
                 } else {
-                	System.out.println("pause");
+//                	System.out.println("pause");
                     pauseUntilReadble();
                     yieldCount = 0;
                 }
@@ -183,7 +182,7 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
     public void pauseUntilReadble() throws Pausable, IOException {
         SockEvent ev = new SockEvent(this, sockch, SelectionKey.OP_READ);
         sockEvMbx.putnb(ev);
-        System.out.println(sockEvMbx.hashCode());
+//        System.out.println(sockEvMbx.hashCode());
         // TODO. Need to introduce session timeouts
         super.get(); // wait on self
     }
