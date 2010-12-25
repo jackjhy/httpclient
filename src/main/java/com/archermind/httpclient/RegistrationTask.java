@@ -16,6 +16,7 @@ import java.nio.channels.Selector;
 import kilim.Mailbox;
 import kilim.Pausable;
 import kilim.Task;
+import kilim.nio.EndPoint;
 import kilim.nio.SockEvent;
 
 /**
@@ -39,6 +40,7 @@ public class RegistrationTask extends Task {
             SockEvent ev = mbx.get();
             SelectionKey sk = ev.ch.register(selector, ev.interestOps);
             sk.attach(ev);
+            ((EndPoint)ev.replyTo).setSk(sk);
         }
     }
 }

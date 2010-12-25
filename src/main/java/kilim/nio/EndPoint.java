@@ -36,9 +36,16 @@ import kilim.Task;
 public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving socket ready events.
 
     // TODO: This too must be made adaptive.
-    static final int                 YIELD_COUNT = Integer.parseInt(System.getProperty("kilim.nio.yieldCount", "4"));
+    static final int YIELD_COUNT = Integer.parseInt(System.getProperty("kilim.nio.yieldCount", "4"));
+    static final int PAUSE_TIME_OUT_MILLS = Integer.parseInt(System.getProperty("kilim.nio.pause.timeout", "60"));
+    
+    private SelectionKey sk = null;
 
-    /**
+    public void setSk(SelectionKey sk) {
+		this.sk = sk;
+	}
+
+	/**
      * The socket channel wrapped by the EndPoint. See #dataChannel()
      */
     public AbstractSelectableChannel sockch;
@@ -125,10 +132,8 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
                     // Avoid registering with the selector because it requires waking up the selector, context switching
                     // between threads and calling the OS just to register. Just yield, let other tasks have a go, then
                     // check later. Do this at most YIELD_COUNT times before going back to the selector.
-//                    System.out.println("yeild");
                 	Task.yield();
                 } else {
-//                	System.out.println("pause");
                     pauseUntilReadble();
                     yieldCount = 0;
                 }
@@ -182,22 +187,26 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
     public void pauseUntilReadble() throws Pausable, IOException {
         SockEvent ev = new SockEvent(this, sockch, SelectionKey.OP_READ);
         sockEvMbx.putnb(ev);
-//        System.out.println(sockEvMbx.hashCode());
-        // TODO. Need to introduce session timeouts
-        super.get(); // wait on self
+        long curr = System.currentTimeMillis();
+        if(super.get(PAUSE_TIME_OUT_MILLS*1000)==null) {
+        	System.out.println("time out:"+(System.currentTimeMillis()-curr));
+        	throw new IOException("time out"); // wait on self
+        }
+        sk = null;
     }
 
     public void pauseUntilWritable() throws Pausable, IOException {
         SockEvent ev = new SockEvent(this, sockch, SelectionKey.OP_WRITE);
         sockEvMbx.putnb(ev);
-        // TODO. Need to introduce session timeouts
-        super.get(); // wait on self
+        if(super.get(PAUSE_TIME_OUT_MILLS*1000)==null) throw new IOException("time out"); // wait on self
+        sk = null;
     }
 
     public void pauseUntilAcceptable() throws Pausable, IOException {
         SockEvent ev = new SockEvent(this, sockch, SelectionKey.OP_ACCEPT);
         sockEvMbx.putnb(ev);
-        super.get(); // wait on self
+        if(super.get(PAUSE_TIME_OUT_MILLS*1000)==null) throw new IOException("time out"); // wait on self
+        sk = null;
     }
 
     /**
@@ -240,11 +249,12 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
      */
     public void close() {
         try {
-            // if (sk != null && sk.isValid()) {
-            // sk.attach(null);
-            // sk.cancel();
-            // sk = null;
-            // }
+			if (sk != null && sk.isValid()) {
+				sk.attach(null);
+				sk.cancel();
+				sk = null;
+				Task.yield();
+			}
             sockch.close();
         } catch (Exception ignore) {
             ignore.printStackTrace();

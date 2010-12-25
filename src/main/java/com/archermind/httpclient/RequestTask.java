@@ -19,15 +19,6 @@ public class RequestTask extends Task {
 		this.req = req;
 	}
 	
-//	@Override
-//	public void execute() throws Pausable, Exception {
-//	    	point.write(req.toBuffer());
-//	    	HttpResponse resp = new HttpResponse();
-//	    	resp.readHead(point);
-//	    	resp.readBody(point);
-//			mailbox.put(resp);
-//	}
-	
 	@Override
 	public void execute() throws Pausable{
 	    	HttpResponse resp = null;
@@ -38,7 +29,9 @@ public class RequestTask extends Task {
 				resp.readBody(point);
 				mailbox.put(resp);
 			} catch (IOException e) {
-				System.out.println("IO Exception");
+				point.close();
+				//do it to running schedule for to call selector's wakeup
+				Task.yield();
 				mailbox.put(new ErrorMsg(e));
 			}
 	}

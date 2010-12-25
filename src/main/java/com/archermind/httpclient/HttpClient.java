@@ -15,7 +15,7 @@ package com.archermind.httpclient;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
+import java.util.Vector;
 import java.util.concurrent.ConcurrentHashMap;
 
 import kilim.Mailbox;
@@ -29,11 +29,11 @@ import kilim.nio.EndPoint;
 public class HttpClient {
 
 	// 保持到同一服务器的tcp连接可复用
-	private ConcurrentHashMap<String, ArrayList<EndPoint>> endpointsPool = null;
+	private ConcurrentHashMap<String, Vector<EndPoint>> endpointsPool = null;
 
 	private BackendScheduler sc = null;
 
-	public HttpClient(ConcurrentHashMap<String, ArrayList<EndPoint>> eps,
+	public HttpClient(ConcurrentHashMap<String, Vector<EndPoint>> eps,
 			BackendScheduler bsc) {
 		this.sc = bsc;
 		this.endpointsPool = eps;
@@ -115,9 +115,9 @@ public class HttpClient {
 	}
 	
 	private synchronized void keepEndPoint(EndPoint ep, String host) {
-		ArrayList<EndPoint> eps = endpointsPool.get(host);
+		Vector<EndPoint> eps = endpointsPool.get(host);
 		if (eps == null)
-			eps = new ArrayList<EndPoint>();
+			eps = new Vector<EndPoint>();
 		eps.add(ep);
 		endpointsPool.put(host, eps);
 	}
@@ -127,7 +127,7 @@ public class HttpClient {
 	}
 
 	private EndPoint getEndPoint(String host) throws Pausable {
-		ArrayList<EndPoint> eps = endpointsPool.get(host);
+		Vector<EndPoint> eps = endpointsPool.get(host);
 		EndPoint result = null;
 		if (eps != null) {
 			while (eps.size() > 0) {
