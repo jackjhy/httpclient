@@ -30,7 +30,7 @@ public class Test {
 			final ResponseCallable callable = new ResponseCallable() {
 				public void call(HttpResponse resp) {
 					try {
-						System.out.println(resp.status()+resp.tempFile.getAbsolutePath());
+						System.out.println(resp.status()/*+resp.tempFile.getAbsolutePath()*/);
 					} catch (Exception e) {
 						e.printStackTrace();
 					}
@@ -43,8 +43,8 @@ public class Test {
 	
 			
 			long ll = System.currentTimeMillis();
-			int times = 0;
-			CountDownLatch cdl = new CountDownLatch(40*5*times+50);
+			int times = 5;
+			CountDownLatch cdl = new CountDownLatch(40*5*times);
 			System.out.println("start test......." + ll);
 			
 			int i = 0;
@@ -76,7 +76,7 @@ public class Test {
 				i++;
 			}
 			i=0;
-			while (i < 40*times+50) {
+			while (i < 40*times) {
 				Task t = new Test().new TestTask(cdl,client,
 						"http://www.163.com");
 				t.start();

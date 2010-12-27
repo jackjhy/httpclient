@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.nio.channels.spi.AbstractSelectableChannel;
 
@@ -140,7 +141,6 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
             }
             atleastN -= n;
         } while (atleastN > 0);
-        
         return buf;
     }
  
@@ -187,9 +187,7 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
     public void pauseUntilReadble() throws Pausable, IOException {
         SockEvent ev = new SockEvent(this, sockch, SelectionKey.OP_READ);
         sockEvMbx.putnb(ev);
-        long curr = System.currentTimeMillis();
         if(super.get(PAUSE_TIME_OUT_MILLS*1000)==null) {
-        	System.out.println("time out:"+(System.currentTimeMillis()-curr));
         	throw new IOException("time out"); // wait on self
         }
         sk = null;
@@ -247,13 +245,14 @@ public class EndPoint extends Mailbox<SockEvent> { // Mailbox for receiving sock
     /**
      * Close the endpoint
      */
-    public void close() {
+    public void close(){
         try {
 			if (sk != null && sk.isValid()) {
+				Selector sel = sk.selector();
 				sk.attach(null);
 				sk.cancel();
 				sk = null;
-				Task.yield();
+				sel.wakeup();
 			}
             sockch.close();
         } catch (Exception ignore) {

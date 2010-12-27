@@ -40,7 +40,7 @@ public class RegistrationTask extends Task {
             SockEvent ev = mbx.get();
             SelectionKey sk = ev.ch.register(selector, ev.interestOps);
             sk.attach(ev);
-            ((EndPoint)ev.replyTo).setSk(sk);
+            if(ev.replyTo instanceof EndPoint)((EndPoint)ev.replyTo).setSk(sk);
         }
     }
 }

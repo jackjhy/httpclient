@@ -13,11 +13,13 @@
 package com.archermind.httpclient;
 
 import java.net.InetSocketAddress;
+import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import kilim.Mailbox;
 import kilim.Pausable;
 import kilim.nio.EndPoint;
 import kilim.nio.SessionTask;
+import kilim.nio.SockEvent;
 
 /**
  * 
@@ -25,7 +27,8 @@ import kilim.nio.SessionTask;
  * Created on 2010-11-8 14:29:45
  */
 public class ConnectionTask extends SessionTask{
-
+	
+    static final int PAUSE_TIME_OUT_MILLS = Integer.parseInt(System.getProperty("kilim.nio.pause.timeout", "60"));
     Mailbox<EndPoint> mbx;
     private String host;
     private int port = 80;
@@ -44,8 +47,14 @@ public class ConnectionTask extends SessionTask{
     @Override
     public void execute() throws Pausable, Exception {
         SocketChannel sch = SocketChannel.open();
-        sch.connect(new InetSocketAddress(host,port));
         sch.configureBlocking(false);
+        sch.connect(new InetSocketAddress(host,port));
+        while(!sch.finishConnect()){
+            Mailbox<SockEvent> mbxss = new Mailbox<SockEvent>();
+            SockEvent ev = new SockEvent(mbxss, sch, SelectionKey.OP_CONNECT);
+            sc.registrationMbx.putnb(ev);
+            if(mbxss.get(PAUSE_TIME_OUT_MILLS*1000)==null) throw new Exception("connection time out");
+        }
         this.setEndPoint(new EndPoint(sc.registrationMbx, sch));
         mbx.put(getEndPoint());
     }

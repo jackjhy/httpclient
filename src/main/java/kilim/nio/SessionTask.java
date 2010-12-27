@@ -23,7 +23,7 @@ public class SessionTask extends Task {
     this.endpoint = ep;
   }
   
-  public void close() {
+  public void close(){
     if (endpoint != null) {
       endpoint.close();
     }
